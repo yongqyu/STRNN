@@ -29,7 +29,7 @@ lw_dist = 1
 batch_size = 20
 num_epochs = 30
 learning_rate = 0.001
-momentum = (0.9, 0.999)
+momentum = 0.9
 evaluate_every = 1
 
 # Data Preparation
@@ -59,6 +59,7 @@ class STRNNModule(nn.Module):
         # modules:
         self.sigmoid = nn.Sigmoid()
 
+    # find the most closest value to w, w_cap(index)
     def find_w_cap(self, times, t, i):
         trg_t = t - ww
         tmp_t = t
@@ -76,6 +77,7 @@ class STRNNModule(nn.Module):
                     return tmp_i 
         return 0
 
+    # get transition matrices by linear interpolation
     def get_location_vector(self, td, ld, locs):
         tud = up_time - td
         tdd = td - lw_time
@@ -131,56 +133,23 @@ class STRNNModule(nn.Module):
         loc_vector = self.get_location_vector(td, self.euclidean_dist(lati, longi), locs[w:-1])
         neg_h = self.sigmoid(loc_vector+user_vector)
 
+        # final prediction
         permanent = torch.t(self.perm_weight(user))
         output = torch.mm(self.location_weight(locs[-1]), pos_h + permanent)
         output -= torch.mm(self.location_weight(neg_loc), neg_h + permanent)
         return output
 
+    # for test, process w/o last location
     def validation(self, user_vector):
         return torch.sum(torch.mul(user_vector, self.location_weight.weight), dim=1, keepdim=True)
 
-
+###############################################################################################
 def parameters():
     params = []
     for model in [strnn_model]:
         params += list(model.parameters())
 
     return params
-
-def make_mask(maxlen, dim, length):
-    one = [1]*dim
-    zero = [0]*dim
-    mask = []
-    for c in length:
-        mask.append(one*c + zero*(maxlen-c))
-
-    # (batch) * maxlen * dim 
-    # [[1 1 1 ... 1 0 0 0 ... 0]...]
-    return Variable(torch.from_numpy(np.asarray(mask)).type(ftype), requires_grad=False)
-
-def run(user, time, lati, longi, loc, step):
-
-    optimizer.zero_grad()
-
-    user = Variable(torch.from_numpy(np.asarray([user]))).type(ltype)
-    time = Variable(torch.from_numpy(np.asarray(time))).type(ftype)
-    lati = Variable(torch.from_numpy(np.asarray(lati))).type(ftype)
-    longi = Variable(torch.from_numpy(np.asarray(longi))).type(ftype)
-    loc = Variable(torch.from_numpy(np.asarray(loc))).type(ltype)
-
-    neg_loc = Variable(torch.FloatTensor(1).uniform_(0, len(poi2pos)-1).long()).type(ltype)
-    (neg_lati, neg_longi) = poi2pos.get(neg_loc.data.cpu().numpy()[0])
-    rnn_output = strnn_model(user, time, lati, longi, loc, neg_lati, neg_longi, neg_loc, step)
-
-    J = torch.log(1+torch.exp(torch.neg(rnn_output)))
-
-    if step == 2:
-        return J.data.cpu().numpy(), loc[-1].data.cpu().numpy()
-    
-    J.backward()
-    optimizer.step()
-    
-    return J.data.cpu().numpy()
 
 def print_score(batches, step):
     recall1 = 0.
@@ -199,9 +168,34 @@ def print_score(batches, step):
     print("recall@1: ", recall1/i)
 
 ###############################################################################################
+def run(user, time, lati, longi, loc, step):
+
+    optimizer.zero_grad()
+
+    user = Variable(torch.from_numpy(np.asarray([user]))).type(ltype)
+    time = Variable(torch.from_numpy(np.asarray(time))).type(ftype)
+    lati = Variable(torch.from_numpy(np.asarray(lati))).type(ftype)
+    longi = Variable(torch.from_numpy(np.asarray(longi))).type(ftype)
+    loc = Variable(torch.from_numpy(np.asarray(loc))).type(ltype)
+
+    neg_loc = Variable(torch.FloatTensor(1).uniform_(0, len(poi2pos)-1).long()).type(ltype)
+    (neg_lati, neg_longi) = poi2pos.get(neg_loc.data.cpu().numpy()[0])
+    rnn_output = strnn_model(user, time, lati, longi, loc, neg_lati, neg_longi, neg_loc, step)
+
+    # Need to regularization
+    J = torch.log(1+torch.exp(torch.neg(rnn_output)))
+
+    if step == 2:
+        return J.data.cpu().numpy(), loc[-1].data.cpu().numpy()
+    
+    J.backward()
+    optimizer.step()
+    
+    return J.data.cpu().numpy()
+
+###############################################################################################
 strnn_model = STRNNModule().cuda()
-#optimizer = torch.optim.SGD(parameters(), lr=learning_rate, momentum=momentum)
-optimizer = torch.optim.Adam(parameters(), lr=learning_rate, betas=momentum)
+optimizer = torch.optim.SGD(parameters(), lr=learning_rate, momentum=momentum)
 
 for i in xrange(num_epochs):
     # Training
@@ -212,7 +206,7 @@ for i in xrange(num_epochs):
         #for k, inner_batch in inner_batches:
         batch_time, batch_lati, batch_longi, batch_loc = train_batch#inner_batch)
         total_loss += run(train_user[j], batch_time, batch_lati, batch_longi, batch_loc, step=1)
-        if (j+1) % 1000 == 0:
+        if (j+1) % 2000 == 0:
             print("batch #{:d}: ".format(j+1)), "batch_loss :", total_loss/j, datetime.datetime.now()
     # Evaluation
     if (i+1) % evaluate_every == 0:
