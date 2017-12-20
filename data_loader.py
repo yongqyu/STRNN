@@ -1,7 +1,48 @@
 import numpy as np
 from datetime import datetime
-import random
 import pandas as pd
+
+def treat_prepro(train):
+    train_f = open(train, 'r')
+    lines = train_f.readlines()[1:]#86582]#[:309931]
+
+    train_user = []
+    train_td = []
+    train_ld = []
+    train_loc = []
+
+    user = 1
+    user_td = []
+    user_ld = []
+    user_loc = []
+
+    for i, line in enumerate(lines):
+        tokens = line.strip().split('\t')
+        if len(tokens) < 3:
+            if user_td: 
+                train_user.append(user)
+                train_td.append(user_td)
+                train_ld.append(user_ld)
+                train_loc.append(user_loc)
+            user = int(tokens[0])
+            user_td = []
+            user_ld = []
+            user_loc = []
+            continue
+        td = np.array([float(t) for t in tokens[0].split(',')])
+        ld = np.array([float(t) for t in tokens[1].split(',')])
+        loc = np.array([int(t) for t in tokens[2].split(',')])
+        user_td.append(td)
+        user_ld.append(ld)
+        user_loc.append(loc)
+
+    if user_td: 
+        train_user.append(user)
+        train_td.append(user_td)
+        train_ld.append(user_ld)
+        train_loc.append(user_loc)
+
+    return train_user, train_td, train_ld, train_loc
 
 def load_data(train):
     user2id = {}
@@ -25,7 +66,7 @@ def load_data(train):
     test_loc = []
 
     train_f = open(train, 'r')
-    lines = train_f.readlines()
+    lines = train_f.readlines()#[:86643]#[:309931]
 
     user_time = []
     user_lati = []
@@ -81,7 +122,7 @@ def load_data(train):
     train_thr = int(len(user_time) * 0.7)
     valid_thr = int(len(user_time) * 0.8)
     if train_thr > 35:
-        trian_user.append(user)
+        train_user.append(user)
         train_time.append(user_time[:train_thr])
         train_lati.append(user_lati[:train_thr])
         train_longi.append(user_longi[:train_thr])
