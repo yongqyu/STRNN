@@ -3,6 +3,7 @@
 import os
 import datetime
 import csv
+import tqdm
 import numpy as np
 import torch
 import torch.nn as nn
@@ -36,9 +37,10 @@ evaluate_every = 1
 # ===========================================================
 # Load data
 print("Loading data...")
-user_cnt, poi2pos, train_user, train_time, train_lati, train_longi, train_loc, valid_user, valid_time, valid_lati, valid_longi, valid_loc, test_user, test_time, test_lati, test_longi, test_loc = data_loader.load_data(train_file)
+user_cnt, poi2id, train_user, train_time, train_lati, train_longi, train_loc, valid_user, valid_time, valid_lati, valid_longi, valid_loc, test_user, test_time, test_lati, test_longi, test_loc = data_loader.load_data(train_file)
 
-print("User/Location: {:d}/{:d}".format(user_cnt, len(poi2pos)))
+#np.save("poi2id_30", poi2id)
+print("User/Location: {:d}/{:d}".format(user_cnt, len(poi2id)))
 print("==================================================================================")
 
 class STRNNModule(nn.Module):
@@ -48,7 +50,7 @@ class STRNNModule(nn.Module):
         # embedding:
         self.user_weight = Variable(torch.randn(user_cnt, dim), requires_grad=False).type(ftype)
         self.h_0 = Variable(torch.randn(dim, 1), requires_grad=False).type(ftype)
-        self.location_weight = nn.Embedding(len(poi2pos), dim)
+        self.location_weight = nn.Embedding(len(poi2id), dim)
         self.perm_weight = nn.Embedding(user_cnt, dim)
         # attributes:
         self.time_upper = nn.Parameter(torch.randn(dim, dim).type(ftype))
@@ -95,7 +97,9 @@ class STRNNModule(nn.Module):
         f.write(data)
         data = ','.join(str(e) for e in ld.data.cpu().numpy())+"\t"
         f.write(data)
-        data = ','.join(str(e.data.cpu().numpy()[0]) for e in locs[w_cap:idx])+"\n"
+        data = ','.join(str(e.data.cpu().numpy()[0]) for e in locs[w_cap:idx])+"\t"
+        f.write(data)
+        data = str(locs[idx].data.cpu().numpy()[0])+"\n"
         f.write(data)
         
     # get transition matrices by linear interpolation
@@ -135,26 +139,31 @@ def run(user, time, lati, longi, loc, step):
 ###############################################################################################
 strnn_model = STRNNModule().cuda()
 
-f = open("./prepro_train.csv", 'w')
+'''
+print "Making train file..."
+f = open("./prepro_train_30.txt", 'w')
 # Training
 train_batches = list(zip(train_time, train_lati, train_longi, train_loc))
-for j, train_batch in enumerate(train_batches):
+for j, train_batch in enumerate(tqdm.tqdm(train_batches, desc="train")):
     batch_time, batch_lati, batch_longi, batch_loc = train_batch#inner_batch)
     run(train_user[j], batch_time, batch_lati, batch_longi, batch_loc, step=1)
 f.close()
 
-f = open("./prepro_valid.csv", 'w')
+print "Making valid file..."
+f = open("./prepro_valid_30.txt", 'w')
 # Eavludating
 valid_batches = list(zip(valid_time, valid_lati, valid_longi, valid_loc))
-for j, valid_batch in enumerate(valid_batches):
+for j, valid_batch in enumerate(tqdm.tqdm(valid_batches, desc="valid")):
     batch_time, batch_lati, batch_longi, batch_loc = valid_batch#inner_batch)
     run(valid_user[j], batch_time, batch_lati, batch_longi, batch_loc, step=2)
 f.close()
 
-f = open("./prepro_test.csv", 'w')
+print "Making test file..."
+f = open("./prepro_test_30.txt", 'w')
 # Testing
 test_batches = list(zip(test_time, test_lati, test_longi, test_loc))
-for j, test_batch in enumerate(test_batches):
+for j, test_batch in enumerate(tqdm.tqdm(test_batches, desc="test")):
     batch_time, batch_lati, batch_longi, batch_loc = test_batch#inner_batch)
     run(test_user[j], batch_time, batch_lati, batch_longi, batch_loc, step=3)
 f.close()
+'''

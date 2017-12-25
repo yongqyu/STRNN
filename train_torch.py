@@ -3,6 +3,7 @@
 import os
 import datetime
 import math
+import tqdm
 import numpy as np
 import torch
 import torch.nn as nn
@@ -16,9 +17,9 @@ ftype = torch.cuda.FloatTensor
 ltype = torch.cuda.LongTensor
 
 # Data loading params
-train_file = "./prepro_train.txt"
-valid_file = "./prepro_valid.txt"
-test_file = "./prepro_test.txt"
+train_file = "./prepro_train_50.txt"
+valid_file = "./prepro_valid_50.txt"
+test_file = "./prepro_test_50.txt"
 
 # Model Hyperparameters
 dim = 13    # dimensionality
@@ -37,16 +38,18 @@ momentum = 0.9
 evaluate_every = 1
 h_0 = Variable(torch.randn(dim, 1), requires_grad=False).type(ftype)
 
-user_cnt = 107092
-loc_cnt = 1280969
+user_cnt = 32899 #50 #107092#0
+loc_cnt = 1115406 #50 #1280969#0
+#user_cnt = 42242 #30 
+#loc_cnt = 1164559 #30
 
 # Data Preparation
 # ===========================================================
 # Load data
 print("Loading data...")
-train_user, train_td, train_ld, train_loc = data_loader.treat_prepro(train_file)
-valid_user, valid_td, valid_ld, valid_loc = data_loader.treat_prepro(valid_file)
-test_user, test_td, test_ld, test_loc = data_loader.treat_prepro(test_file)
+train_user, train_td, train_ld, train_loc, train_dst = data_loader.treat_prepro(train_file, step=1)
+valid_user, valid_td, valid_ld, valid_loc, valid_dst = data_loader.treat_prepro(valid_file, step=2)
+test_user, test_td, test_ld, test_loc, test_dst = data_loader.treat_prepro(test_file, step=3)
 
 print("User/Location: {:d}/{:d}/{:d}".format(user_cnt, loc_cnt, len(train_user)))
 print("==================================================================================")
@@ -87,26 +90,25 @@ class STRNNCell(nn.Module):
         hx = loc_vec + usr_vec # hidden_size x 1
         return self.sigmoid(hx)
 
-    def loss(self, user, td_upper, td_lower, ld_upper, ld_lower, loc, hx):
+    def loss(self, user, td_upper, td_lower, ld_upper, ld_lower, loc, dst, hx):
         h_tq = self.forward(td_upper, td_lower, ld_upper, ld_lower, loc, hx)
         p_u = self.permanet_weight(user)
-        q_v = self.location_weight(loc)
+        q_v = self.location_weight(dst)
         output = torch.mm(q_v, (h_tq + torch.t(p_u)))
 
-        l2_reg = None
+        l2_reg = []
         for W in self.parameters():
-            if l2_reg is None:
-                l2_reg = W.norm(2)
-            else:
-                l2_reg += W.norm(2)
+            l2_reg.append(W.norm(2))
+        l2_reg = np.sum(l2_reg)
 
         return torch.log(1+torch.exp(torch.neg(output))) + l2_reg.pow(2) * reg_lambda
 
-    def validation(self, user, hx):
+    def validation(self, user, td_upper, td_lower, ld_upper, ld_lower, loc, dst, hx):
+        # error exist in distance (ld_upper, ld_lower)
+        h_tq = self.forward(td_upper, td_lower, ld_upper, ld_lower, loc, hx)
         p_u = self.permanet_weight(user)
-        user_vector = hx + torch.t(p_u)
-        ret = torch.sum(torch.mul(user_vector.view(-1), self.location_weight.weight)\
-                , dim=1, keepdim=True).data.cpu().numpy()
+        user_vector = h_tq + torch.t(p_u)
+        ret = torch.mm(self.location_weight.weight, user_vector).data.cpu().numpy()
         return np.argsort(np.squeeze(-1*ret))
 
 ###############################################################################################
@@ -124,10 +126,14 @@ def print_score(batches, step):
     recall100 = 0.
     recall1000 = 0.
     recall10000 = 0.
+    iter_cnt = 0
 
-    for i, batch in enumerate(batches):
-        batch_user, batch_td, batch_ld, batch_loc = batch
-        batch_o, target = run(batch_user, batch_td, batch_ld, batch_loc, step=step)
+    for batch in tqdm.tqdm(batches, desc="validation"):
+        batch_user, batch_td, batch_ld, batch_loc, batch_dst = batch
+        if len(batch_loc) < 3:
+            continue
+        iter_cnt += 1
+        batch_o, target = run(batch_user, batch_td, batch_ld, batch_loc, batch_dst, step=step)
 
         recall1 += target in batch_o[:1]
         recall5 += target in batch_o[:5]
@@ -136,15 +142,15 @@ def print_score(batches, step):
         recall1000 += target in batch_o[:1000]
         recall10000 += target in batch_o[:10000]
 
-    print("recall@1: ", recall1/i)
-    print("recall@5: ", recall5/i)
-    print("recall@10: ", recall10/i)
-    print("recall@100: ", recall100/i)
-    print("recall@1000: ", recall1000/i)
-    print("recall@10000: ", recall10000/i)
+    print("recall@1: ", recall1/iter_cnt)
+    print("recall@5: ", recall5/iter_cnt)
+    print("recall@10: ", recall10/iter_cnt)
+    print("recall@100: ", recall100/iter_cnt)
+    print("recall@1000: ", recall1000/iter_cnt)
+    print("recall@10000: ", recall10000/iter_cnt)
 
 ###############################################################################################
-def run(user, td, ld, loc, step):
+def run(user, td, ld, loc, dst, step):
 
     optimizer.zero_grad()
     
@@ -162,15 +168,17 @@ def run(user, td, ld, loc, step):
         location = Variable(torch.from_numpy(np.asarray(loc[idx]))).type(ltype)
         rnn_output = strnn_model(td_upper, td_lower, ld_upper, ld_lower, location, rnn_output)#, neg_lati, neg_longi, neg_loc, step)
 
-    if step > 1:
-        return strnn_model.validation(user, rnn_output), loc[-1]
-
     td_upper = Variable(torch.from_numpy(np.asarray(up_time-td[-1]))).type(ftype)
     td_lower = Variable(torch.from_numpy(np.asarray(td[-1]-lw_time))).type(ftype)
     ld_upper = Variable(torch.from_numpy(np.asarray(up_dist-ld[-1]))).type(ftype)
     ld_lower = Variable(torch.from_numpy(np.asarray(ld[-1]-lw_dist))).type(ftype)
     location = Variable(torch.from_numpy(np.asarray(loc[-1]))).type(ltype)
-    J = strnn_model.loss(user, td_upper, td_lower, ld_upper, ld_lower, location[-1], rnn_output)#, neg_lati, neg_longi, neg_loc, step)
+
+    if step > 1:
+        return strnn_model.validation(user, td_upper, td_lower, ld_upper, ld_lower, location, dst[-1], rnn_output), dst[-1]
+
+    destination = Variable(torch.from_numpy(np.asarray([dst[-1]]))).type(ltype)
+    J = strnn_model.loss(user, td_upper, td_lower, ld_upper, ld_lower, location, destination, rnn_output)#, neg_lati, neg_longi, neg_loc, step)
     
     J.backward()
     optimizer.step()
@@ -184,24 +192,26 @@ optimizer = torch.optim.SGD(parameters(), lr=learning_rate, momentum=momentum)
 for i in xrange(num_epochs):
     # Training
     total_loss = 0.
-    train_batches = list(zip(train_user, train_td, train_ld, train_loc))
-    for j, train_batch in enumerate(train_batches):
+    train_batches = list(zip(train_user, train_td, train_ld, train_loc, train_dst))
+    for j, train_batch in enumerate(tqdm.tqdm(train_batches, desc="train")):
         #inner_batches = data_loader.inner_iter(train_batch, batch_size)
         #for k, inner_batch in inner_batches:
-        batch_user, batch_td, batch_ld, batch_loc = train_batch#inner_batch)
-        total_loss += run(batch_user, batch_td, batch_ld, batch_loc, step=1)
-        if (j+1) % 200 == 0:
-            print("batch #{:d}: ".format(j+1)), "batch_loss :", total_loss/j, datetime.datetime.now()
+        batch_user, batch_td, batch_ld, batch_loc, batch_dst = train_batch#inner_batch)
+        if len(batch_loc) < 3:
+            continue
+        total_loss += run(batch_user, batch_td, batch_ld, batch_loc, batch_dst, step=1)
+        #if (j+1) % 2000 == 0:
+        #    print("batch #{:d}: ".format(j+1)), "batch_loss :", total_loss/j, datetime.datetime.now()
     # Evaluation
     if (i+1) % evaluate_every == 0:
         print("==================================================================================")
-        print("Evaluation at epoch #{:d}: ".format(i+1)), total_loss/j, datetime.datetime.now()
-        valid_batches = list(zip(valid_user, valid_td, valid_ld, valid_loc))
+        #print("Evaluation at epoch #{:d}: ".format(i+1)), total_loss/j, datetime.datetime.now()
+        valid_batches = list(zip(valid_user, valid_td, valid_ld, valid_loc, valid_dst))
         print_score(valid_batches, step=2)
 
 # Testing
 print("Training End..")
 print("==================================================================================")
 print("Test: ")
-test_batches = list(zip(test_user, test_td, test_ld, test_loc))
+test_batches = list(zip(test_user, test_td, test_ld, test_loc, test_dst))
 print_score(test_batches, step=3)
