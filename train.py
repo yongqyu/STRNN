@@ -26,7 +26,7 @@ up_dist = 100   # ??
 lw_dist = 1
 
 # Training Parameters
-batch_size = 20
+batch_size = 2
 num_epochs = 30
 learning_rate = 0.001
 momentum = 0.9
@@ -50,11 +50,11 @@ class STRNNModule(nn.Module):
         self.location_weight = nn.Embedding(len(poi2pos), dim)
         self.perm_weight = nn.Embedding(user_cnt, dim)
         # attributes:
-        self.time_upper = Variable(torch.randn(dim, dim), requires_grad=True).type(ftype)
-        self.time_lower = Variable(torch.randn(dim, dim), requires_grad=True).type(ftype)
-        self.dist_upper = Variable(torch.randn(dim, dim), requires_grad=True).type(ftype)
-        self.dist_lower = Variable(torch.randn(dim, dim), requires_grad=True).type(ftype)
-        self.C = Variable(torch.randn(dim, dim), requires_grad=True).type(ftype)
+        self.time_upper = nn.Parameter(torch.randn(dim, dim).type(ftype))
+        self.time_lower = nn.Parameter(torch.randn(dim, dim).type(ftype))
+        self.dist_upper = nn.Parameter(torch.randn(dim, dim).type(ftype))
+        self.dist_lower = nn.Parameter(torch.randn(dim, dim).type(ftype))
+        self.C = nn.Parameter(torch.randn(dim, dim).type(ftype))
 
         # modules:
         self.sigmoid = nn.Sigmoid()
@@ -153,6 +153,8 @@ def parameters():
 
 def print_score(batches, step):
     recall1 = 0.
+    recall5 = 0.
+    recall10 = 0.
 
     if step == 2:
         batch_user = valid_user
@@ -163,9 +165,13 @@ def print_score(batches, step):
         batch_time, batch_lati, batch_longi, batch_loc = batch
         batch_o, target = run(batch_user[i], batch_time, batch_lati, batch_longi, batch_loc, step=step)
 
-        recall1 += target is np.argsort(np.squeeze(batch_o))
+        recall1 += target is np.argsort(np.squeeze(-1*batch_o))[:1]
+        recall5 += target is np.argsort(np.squeeze(-1*batch_o))[:5]
+        recall10 += target is np.argsort(np.squeeze(-1*batch_o))[:10]
 
     print("recall@1: ", recall1/i)
+    print("recall@5: ", recall1/i)
+    print("recall@10: ", recall1/i)
 
 ###############################################################################################
 def run(user, time, lati, longi, loc, step):
@@ -182,11 +188,11 @@ def run(user, time, lati, longi, loc, step):
     (neg_lati, neg_longi) = poi2pos.get(neg_loc.data.cpu().numpy()[0])
     rnn_output = strnn_model(user, time, lati, longi, loc, neg_lati, neg_longi, neg_loc, step)
 
+    if step > 1:
+        return rnn_output.data.cpu().numpy(), loc[-1].data.cpu().numpy()
+
     # Need to regularization
     J = torch.log(1+torch.exp(torch.neg(rnn_output)))
-
-    if step == 2:
-        return J.data.cpu().numpy(), loc[-1].data.cpu().numpy()
     
     J.backward()
     optimizer.step()
@@ -195,6 +201,7 @@ def run(user, time, lati, longi, loc, step):
 
 ###############################################################################################
 strnn_model = STRNNModule().cuda()
+print strnn_model.C.data[0]
 optimizer = torch.optim.SGD(parameters(), lr=learning_rate, momentum=momentum)
 
 for i in xrange(num_epochs):
@@ -212,6 +219,7 @@ for i in xrange(num_epochs):
     if (i+1) % evaluate_every == 0:
         print("==================================================================================")
         print("Evaluation at epoch #{:d}: ".format(i+1))
+        print strnn_model.C.data[0]
         valid_batches = list(zip(valid_time, valid_lati, valid_longi, valid_loc))
         print_score(valid_batches, step=2)
 
