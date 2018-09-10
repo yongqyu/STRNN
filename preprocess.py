@@ -23,7 +23,7 @@ train_file = "../dataset/loc-gowalla_totalCheckins.txt"
 dim = 13    # dimensionality
 ww = 360  # winodw width (6h)
 up_time = 1440  # 1d
-lw_time = 30    # 30m
+lw_time = 50    # 50m
 up_dist = 100   # ??
 lw_dist = 1
 
@@ -76,9 +76,9 @@ class STRNNModule(nn.Module):
             elif t_w.data.cpu().numpy() < trg_t.data.cpu().numpy():
                 if trg_t.data.cpu().numpy() - t_w.data.cpu().numpy() \
                     < tmp_t.data.cpu().numpy() - trg_t.data.cpu().numpy():
-                    return i-idx 
+                    return i-idx
                 else:
-                    return tmp_i 
+                    return tmp_i
         return 0
 
     def return_h_tw(self, times, latis, longis, locs, idx):
@@ -101,7 +101,7 @@ class STRNNModule(nn.Module):
         f.write(data)
         data = str(locs[idx].data.cpu().numpy()[0])+"\n"
         f.write(data)
-        
+
     # get transition matrices by linear interpolation
     def get_location_vector(self, td, ld, locs):
         tud = up_time - td
@@ -139,9 +139,8 @@ def run(user, time, lati, longi, loc, step):
 ###############################################################################################
 strnn_model = STRNNModule().cuda()
 
-'''
 print "Making train file..."
-f = open("./prepro_train_30.txt", 'w')
+f = open("./prepro_train_%s.txt"%lw_time, 'w')
 # Training
 train_batches = list(zip(train_time, train_lati, train_longi, train_loc))
 for j, train_batch in enumerate(tqdm.tqdm(train_batches, desc="train")):
@@ -150,7 +149,7 @@ for j, train_batch in enumerate(tqdm.tqdm(train_batches, desc="train")):
 f.close()
 
 print "Making valid file..."
-f = open("./prepro_valid_30.txt", 'w')
+f = open("./prepro_valid_%s.txt"%lw_time, 'w')
 # Eavludating
 valid_batches = list(zip(valid_time, valid_lati, valid_longi, valid_loc))
 for j, valid_batch in enumerate(tqdm.tqdm(valid_batches, desc="valid")):
@@ -159,11 +158,10 @@ for j, valid_batch in enumerate(tqdm.tqdm(valid_batches, desc="valid")):
 f.close()
 
 print "Making test file..."
-f = open("./prepro_test_30.txt", 'w')
+f = open("./prepro_test_%s.txt"%lw_time, 'w')
 # Testing
 test_batches = list(zip(test_time, test_lati, test_longi, test_loc))
 for j, test_batch in enumerate(tqdm.tqdm(test_batches, desc="test")):
     batch_time, batch_lati, batch_longi, batch_loc = test_batch#inner_batch)
     run(test_user[j], batch_time, batch_lati, batch_longi, batch_loc, step=3)
 f.close()
-'''

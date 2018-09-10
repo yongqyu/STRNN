@@ -1,6 +1,6 @@
 # STRNN
-Predicting the Next Location: A Recurrent Model with Spatial and Temporal Contexts 
-Qiang Liu, Shu Wu, Liang Wang, Tieniu Tan 
+Predicting the Next Location: A Recurrent Model with Spatial and Temporal Contexts
+Qiang Liu, Shu Wu, Liang Wang, Tieniu Tan
 Proceedings of the Thirtieth AAAI Conference on Artificial Intelligence (AAAI-16)
 
 ('recall@1: ', 0.0017160630653176505)
@@ -9,3 +9,16 @@ Proceedings of the Thirtieth AAAI Conference on Artificial Intelligence (AAAI-16
 ('recall@100: ', 0.00464767080190197)
 ('recall@1000: ', 0.006256479925637267)
 ('recall@10000: ', 0.014407779485896107)
+
+## Usage
+
+### 0. Preprocessing
+[Gowalla](http://snap.stanford.edu/data/loc-gowalla_totalCheckins.txt.gz) is required for preprocessing at `../dataset/`.
+```bash
+$ python preprocess.py
+```
+
+### 1. Training
+```bash
+$ python train_torch.py
+```
