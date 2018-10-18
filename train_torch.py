@@ -28,7 +28,7 @@ up_time = 560632.0  # min
 lw_time = 0.
 up_dist = 457.335   # km
 lw_dist = 0.
-reg_lambda = 0.0005
+reg_lambda = 0.1
 
 # Training Parameters
 batch_size = 2
@@ -40,8 +40,13 @@ h_0 = Variable(torch.randn(dim, 1), requires_grad=False).type(ftype)
 
 user_cnt = 32899 #50 #107092#0
 loc_cnt = 1115406 #50 #1280969#0
-#user_cnt = 42242 #30 
+#user_cnt = 42242 #30
 #loc_cnt = 1164559 #30
+
+try:
+    xrange
+except NameError:
+    xrange = range
 
 # Data Preparation
 # ===========================================================
@@ -51,7 +56,7 @@ train_user, train_td, train_ld, train_loc, train_dst = data_loader.treat_prepro(
 valid_user, valid_td, valid_ld, valid_loc, valid_dst = data_loader.treat_prepro(valid_file, step=2)
 test_user, test_td, test_ld, test_loc, test_dst = data_loader.treat_prepro(test_file, step=3)
 
-print("User/Location: {:d}/{:d}/{:d}".format(user_cnt, loc_cnt, len(train_user)))
+print("User/Location: {:d}/{:d}".format(user_cnt, loc_cnt))
 print("==================================================================================")
 
 class STRNNCell(nn.Module):
@@ -82,11 +87,11 @@ class STRNNCell(nn.Module):
                 /(td_upper[i]+td_lower[i])) for i in xrange(loc_len)]
         Sld = [((self.weight_sh_upper*ld_upper[i] + self.weight_sh_lower*ld_lower[i])\
                 /(ld_upper[i]+ld_lower[i])) for i in xrange(loc_len)]
-        
+
         loc = self.location_weight(loc).view(-1,self.hidden_size,1)
         loc_vec = torch.sum(torch.cat([torch.mm(Sld[i], torch.mm(Ttd[i], loc[i]))\
                 .view(1,self.hidden_size,1) for i in xrange(loc_len)], dim=0), dim=0)
-        usr_vec = torch.mm(self.weight_ih, hx) 
+        usr_vec = torch.mm(self.weight_ih, hx)
         hx = loc_vec + usr_vec # hidden_size x 1
         return self.sigmoid(hx)
 
@@ -96,12 +101,7 @@ class STRNNCell(nn.Module):
         q_v = self.location_weight(dst)
         output = torch.mm(q_v, (h_tq + torch.t(p_u)))
 
-        l2_reg = []
-        for W in self.parameters():
-            l2_reg.append(W.norm(2))
-        l2_reg = np.sum(l2_reg)
-
-        return torch.log(1+torch.exp(torch.neg(output))) + l2_reg.pow(2) * reg_lambda
+        return torch.log(1+torch.exp(torch.neg(output)))
 
     def validation(self, user, td_upper, td_lower, ld_upper, ld_lower, loc, dst, hx):
         # error exist in distance (ld_upper, ld_lower)
@@ -153,7 +153,7 @@ def print_score(batches, step):
 def run(user, td, ld, loc, dst, step):
 
     optimizer.zero_grad()
-    
+
     seqlen = len(td)
     user = Variable(torch.from_numpy(np.asarray([user]))).type(ltype)
 
@@ -179,15 +179,15 @@ def run(user, td, ld, loc, dst, step):
 
     destination = Variable(torch.from_numpy(np.asarray([dst[-1]]))).type(ltype)
     J = strnn_model.loss(user, td_upper, td_lower, ld_upper, ld_lower, location, destination, rnn_output)#, neg_lati, neg_longi, neg_loc, step)
-    
+
     J.backward()
     optimizer.step()
-    
+
     return J.data.cpu().numpy()
 
 ###############################################################################################
 strnn_model = STRNNCell(dim).cuda()
-optimizer = torch.optim.SGD(parameters(), lr=learning_rate, momentum=momentum)
+optimizer = torch.optim.SGD(parameters(), lr=learning_rate, momentum=momentum, weight_decay=reg_lambda)
 
 for i in xrange(num_epochs):
     # Training
