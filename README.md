@@ -2,6 +2,7 @@
 [Predicting the Next Location: A Recurrent Model with Spatial and Temporal Contexts](https://pdfs.semanticscholar.org/5bdf/0970034d0bb8a218c06ba3f2ddf97d29103d.pdf)  
 Qiang Liu, Shu Wu, Liang Wang, Tieniu Tan (AAAI-16)
 
+## Performance of this implementation
 
 (recall@1:  0.0017160630653176505)  
 (recall@5:  0.003539380072217654)  
@@ -10,7 +11,7 @@ Qiang Liu, Shu Wu, Liang Wang, Tieniu Tan (AAAI-16)
 (recall@1000:  0.01394045534150613)  
 (recall@10000:  0.07866900175131349)  
 
-## requirements
+## Requirements
 1.python 3.5  
 2.pytorch 0.4.0
 
